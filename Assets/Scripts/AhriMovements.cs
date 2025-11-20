@@ -29,7 +29,6 @@ public class AhriMovements : MonoBehaviour
     // Input Variables
     private float _horizontalInput;
     private bool _jumpInput;
-    private bool _dashInput;
 
     void Awake()
     {
@@ -98,8 +97,11 @@ public class AhriMovements : MonoBehaviour
 
     private void FlipSprite()
     {
-        if (_horizontalInput > 0) _spr.flipX = false;
-        else if (_horizontalInput < 0) _spr.flipX = true;
+        if (!_isDashing && _horizontalInput != 0) // 대시 중에는 방향 전환 방지
+        {
+            if (_horizontalInput > 0) _spr.flipX = false;
+            else if (_horizontalInput < 0) _spr.flipX = true;
+        }
     }
 
     // 대시 로직을 코루틴으로 분리하여 가독성과 제어력을 높임
@@ -108,25 +110,46 @@ public class AhriMovements : MonoBehaviour
         _isDashing = true;
         _canDash = false;
 
+        // 대시 초기화
         // 대시 중 중력 영향 무시 (직선 대시를 위해)
         float originalGravity = _rb.gravityScale;
         _rb.gravityScale = 0f;
+        _rb.linearVelocity = Vector2.zero; // 기존 가속도 제거
 
+        // 정밀 계산을 위한 변수 설정
         // 속도 = 거리 / 시간
         float dashSpeed = dashDistance / dashTime;
-        
-        // 대시 속도 적용
-        _rb.linearVelocity = new Vector2(direction * dashSpeed, 0f);
+        float currentMovedDistance = 0f;
 
-        // 대시 시간만큼 대기
-        yield return new WaitForSeconds(dashTime);
+        // 이동 루프 (거리 기반)
+        while (currentMovedDistance < dashDistance)
+        {
+            // 이번 프레임 이동량 계산
+            float moveStep = dashSpeed * Time.fixedDeltaTime;
 
-        // 대시 종료: 중력 복구 및 속도 초기화
+            // 거리 보정 (남은 거리가 이번 이동량보다 작으면 남은 만큼만 이동)
+            if (currentMovedDistance + moveStep > dashDistance)
+            {
+                moveStep = dashDistance - currentMovedDistance;
+            }
+
+            // Rigidbody 이동 (Physics와 충돌 처리를 유지하며 이동)
+            Vector2 nextPosition = _rb.position + new Vector2(direction * moveStep, 0);
+            _rb.MovePosition(nextPosition);
+
+            // 누적 거리 갱신
+            currentMovedDistance += moveStep;
+
+            // 물리 업데이트 대기 (WaitForSeconds 대신 사용해야 MovePosition과 동기화됨)
+            yield return new WaitForFixedUpdate();
+        }
+
+        // 대시 종료 정리
         _rb.gravityScale = originalGravity;
         _rb.linearVelocity = Vector2.zero;
         _isDashing = false;
 
-        // 쿨타임 대기
+        // 쿨타임
         yield return new WaitForSeconds(dashCooldown);
         _canDash = true;
     }
